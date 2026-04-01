@@ -1,0 +1,346 @@
+---
+title: "훅 레퍼런스"
+description: "Claude Code의 훅 시스템 — 셸 명령어, HTTP 엔드포인트, LLM 프롬프트, 프로세스 내 콜백에 대한 상세 가이드"
+---
+
+# 훅 레퍼런스
+
+Claude Code의 훅 시스템은 Claude의 에이전트 워크플로우 특정 지점에서 트리거되는 셸 명령어, HTTP 엔드포인트, LLM 프롬프트, 프로세스 내 콜백입니다. 훅을 통해 도구 호출 전후의 로직 주입, 권한 가로채기, 세션 생명주기 반응 등을 수행할 수 있습니다.
+
+## 설정 구조
+
+훅은 Claude Code 설정 파일에서 최상위 `hooks` 키를 사용하여 이벤트 이름을 매처 객체 배열에 매핑하는 방식으로 정의됩니다. 설정 파일은 세 가지 범위 수준에 존재합니다:
+
+| 범위 | 경로 | 우선순위 |
+|------|------|----------|
+| 사용자 | `~/.claude/settings.json` | 낮음 |
+| 프로젝트 | `.claude/settings.json` | 중간 |
+| 로컬 | `.claude/settings.local.json` | 높음 |
+
+우선순위가 높은 파일이 우선하지만, 모든 파일의 훅이 덮어쓰지 않고 모두 실행됩니다.
+
+### 매처 설정
+
+선택적 `matcher` 필드는 컨텍스트 의존적 값을 확인하여 훅 실행을 필터링합니다:
+
+- 도구 관련 이벤트는 `tool_name`을 확인합니다
+- `Notification`은 `notification_type`을 확인합니다
+- `SessionStart`는 `source`를 확인합니다 (startup, resume, clear, compact)
+- `Setup`은 `trigger`를 확인합니다 (init, maintenance)
+- `FileChanged`는 `".envrc|.env"`와 같은 패턴으로 파일명을 매칭합니다
+
+`matcher`를 생략하면 해당 이벤트의 모든 인스턴스에 대해 훅이 실행됩니다.
+
+## 훅 유형
+
+### 명령어 훅 (Command Hooks)
+
+stdin으로 파이프된 JSON 입력과 함께 셸 명령어를 실행합니다. 설정 가능한 타임아웃(기본 60초)으로 bash/powershell을 지원합니다. 주요 설정:
+
+- **async**: 차단 없이 백그라운드에서 실행
+- **asyncRewake**: 종료 코드 2에서 모델을 깨우는 백그라운드 실행
+- **once**: 한 번 실행 후 설정에서 제거
+- **if**: 매칭되지 않는 호출을 조건부로 건너뛰는 권한 규칙 구문
+- **statusMessage**: 실행 중 사용자 정의 스피너 메시지
+
+종료 코드에 따른 동작:
+- `0`: 출력이 숨겨짐; 유효한 경우 훅 JSON이 적용됨
+- `2`: stderr이 Claude에게 표시됨; 도구 호출이 차단됨
+- 기타: stderr이 사용자에게만 표시됨; 도구 호출이 계속됨
+
+`CwdChanged`와 `FileChanged` 훅에 대해 `CLAUDE_ENV_FILE` 변수가 설정되어 `export KEY=value` 형식으로 환경 변수를 주입할 수 있습니다.
+
+### 프롬프트 훅 (Prompt Hooks)
+
+지정된 모델(기본값은 작은 빠른 모델)을 사용하여 LLM 평가를 수행합니다. `$ARGUMENTS` 플레이스홀더에 훅 입력 JSON이 삽입됩니다. 모델 응답이 훅 출력이 됩니다.
+
+### 에이전트 훅 (Agent Hooks)
+
+도구를 호출할 수 있는 에이전트 검증 루프입니다. 파일 읽기나 명령어 실행이 필요한 PostToolUse 검증 시나리오에 유용합니다.
+
+### HTTP 훅
+
+훅 입력 JSON을 지정된 URL로 POST합니다. 헤더 값은 `allowedEnvVars`에 나열된 변수에 대해서만 `$VAR_NAME` 환경 변수 보간을 지원합니다.
+
+## 기본 훅 입력
+
+모든 훅은 다음 공통 필드가 포함된 JSON을 받습니다:
+
+| 필드 | 설명 |
+|------|------|
+| **hook_event_name** | 트리거하는 이벤트 (예: "PreToolUse") |
+| **session_id** | 현재 세션 식별자 |
+| **transcript_path** | 세션 JSONL 파일의 절대 경로 |
+| **cwd** | 현재 작업 디렉토리 |
+| **permission_mode** | 활성 권한 모드 ("default", "acceptEdits", "bypassPermissions", "plan", "dontAsk") |
+| **agent_id** | 서브에이전트 컨텍스트에서 실행될 때만 존재 |
+| **agent_type** | 서브에이전트 또는 `--agent`가 있는 메인 스레드 세션에서 존재 |
+
+## 동기 훅 출력
+
+차단 훅은 종료 전에 JSON을 stdout에 작성합니다:
+
+```json
+{
+  "continue": true,
+  "suppressOutput": false,
+  "decision": "approve",
+  "reason": "Command looks safe",
+  "systemMessage": "The hook approved this action.",
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse"
+  }
+}
+```
+
+| 필드 | 설명 |
+|------|------|
+| **continue** | `false`이면 현재 턴을 즉시 중단합니다 |
+| **suppressOutput** | `true`이면 트랜스크립트 모드에서 훅 stdout을 숨깁니다 |
+| **decision** | 명시적 "approve"/"block" 결정 (CLI 의존적) |
+| **systemMessage** | Claude의 컨텍스트에 시스템 턴으로 주입되는 텍스트 |
+| **reason** | 차단 시 표시되는 사람이 읽을 수 있는 결정 설명 |
+| **hookSpecificOutput** | 아래에 상세 설명된 이벤트별 필드 |
+
+## 훅 이벤트 레퍼런스
+
+### PreToolUse
+
+도구 실행 직전에 발생합니다. 검사, 차단, 또는 입력 수정이 가능합니다.
+
+**입력 필드**: `tool_name`, `tool_input`, `tool_use_id`
+
+**hookSpecificOutput 필드**:
+- `permissionDecision`: "allow"/"deny"/"ask" 재정의
+- `permissionDecisionReason`: 거부/확인 시 표시되는 이유
+- `updatedInput`: 대체 도구 입력 객체
+- `additionalContext`: Claude의 컨텍스트에 주입되는 텍스트
+
+### PostToolUse
+
+도구가 성공적으로 완료된 후 발생합니다. 출력을 관찰하거나 컨텍스트를 주입합니다.
+
+**입력 필드**: `tool_name`, `tool_input`, `tool_response`, `tool_use_id`
+
+**hookSpecificOutput 필드**:
+- `additionalContext`: 도구 결과 후 주입되는 컨텍스트
+- `updatedMCPToolOutput`: MCP 도구 출력 대체 (MCP 호출에서만)
+
+### PostToolUseFailure
+
+도구가 오류를 발생시키거나 중단될 때 실행됩니다.
+
+**입력 필드**: `tool_name`, `tool_input`, `tool_use_id`, `error`, `is_interrupt`
+
+훅 출력은 기록되지만 실패 결과에 영향을 주지 않습니다.
+
+### PermissionRequest
+
+권한 대화 상자가 표시될 때 발생합니다. 훅이 UI 없이 프로그래밍 방식으로 승인/거부합니다.
+
+**입력 필드**: `tool_name`, `tool_input`, `permission_suggestions`
+
+**hookSpecificOutput.decision**:
+- 허용: `{behavior: "allow", updatedInput: {...}, updatedPermissions: [...]}`
+- 거부: `{behavior: "deny", message: "...", interrupt: false}`
+
+### PermissionDenied
+
+권한 거부 후 발생합니다. Claude에게 재시도를 지시할 수 있습니다.
+
+**입력 필드**: `tool_name`, `tool_input`, `tool_use_id`, `reason`
+
+**hookSpecificOutput 필드**:
+- `retry`: `true`이면 Claude가 거부된 작업을 재시도할 수 있습니다
+
+### Stop
+
+Claude가 응답을 마무리하기 직전에 발생합니다. 종료 코드 2로 검증 확인을 수행하여 계속할 수 있습니다.
+
+**입력 필드**: `stop_hook_active`, `last_assistant_message`
+
+**종료 코드**:
+- `0`: 출력이 표시되지 않음
+- `2`: stderr이 시스템 메시지가 됨; Claude가 계속함
+- 기타: stderr이 사용자에게 표시됨; Claude가 중단함
+
+### StopFailure
+
+API 오류(속도 제한, 인증 등)로 턴이 종료될 때 Stop 대신 발생합니다.
+
+**입력 필드**: `error` ("authentication_failed", "billing_error", "rate_limit" 등), `error_details`, `last_assistant_message`
+
+발생 후 잊어버리는 방식; 출력과 종료 코드가 무시됩니다.
+
+### SubagentStart
+
+Claude가 Agent 도구를 통해 서브에이전트를 생성할 때 발생합니다.
+
+**입력 필드**: `agent_id`, `agent_type`
+
+**hookSpecificOutput 필드**:
+- `additionalContext`: 서브에이전트 시작 시 주입되는 컨텍스트
+
+### SubagentStop
+
+서브에이전트에 대한 Stop의 대응입니다. 서브에이전트가 마무리되기 전에 발생합니다.
+
+**입력 필드**: `agent_id`, `agent_type`, `agent_transcript_path`, `stop_hook_active`, `last_assistant_message`
+
+**종료 코드**: `0`은 출력 없음; `2`는 서브에이전트 계속; 기타는 stderr을 사용자에게 표시합니다.
+
+### SessionStart
+
+세션 시작, 재개, 초기화, 또는 압축 후에 발생합니다.
+
+**입력 필드**: `source` ("startup", "resume", "clear", "compact"), `model`
+
+**hookSpecificOutput 필드**:
+- `additionalContext`: 시스템 프롬프트에 주입되는 컨텍스트
+- `initialUserMessage`: 자동으로 제출되는 첫 메시지
+- `watchPaths`: FileChanged 감시기를 위한 절대 경로
+
+### SessionEnd
+
+세션이 종료될 때 발생합니다.
+
+**입력 필드**: `reason` ("clear", "resume", "logout", "prompt_input_exit", "other", "bypass_permissions_disabled")
+
+### Setup
+
+저장소 초기화 또는 유지보수 검사 중에 발생합니다.
+
+**입력 필드**: `trigger` ("init" 또는 "maintenance")
+
+**hookSpecificOutput 필드**:
+- `additionalContext`: 설정 중 Claude에게 제공되는 컨텍스트
+
+### PreCompact
+
+압축 요약 생성 전에 발생합니다.
+
+**입력 필드**: `trigger` ("manual" 또는 "auto"), `custom_instructions`
+
+**종료 코드**:
+- `0`: stdout이 압축 지시사항으로 추가됨
+- `2`: 압축이 차단됨
+- 기타: stderr이 표시됨; 압축이 계속됨
+
+### PostCompact
+
+압축이 완료된 후 발생합니다.
+
+**입력 필드**: `trigger`, `compact_summary`
+
+### UserPromptSubmit
+
+사용자가 프롬프트를 제출하고 Claude가 처리하기 전에 발생합니다.
+
+**입력 필드**: `prompt`
+
+**종료 코드**:
+- `0`: stdout이 추가 컨텍스트로 표시됨
+- `2`: 처리가 차단됨; stderr이 사용자에게 표시됨
+- 기타: stderr이 사용자에게만 표시됨
+
+**hookSpecificOutput 필드**:
+- `additionalContext`: 사용자 메시지에 추가되는 컨텍스트
+
+### Notification
+
+Claude Code가 알림을 보낼 때 발생합니다.
+
+**입력 필드**: `message`, `title`, `notification_type` ("permission_prompt", "idle_prompt", "auth_success", "elicitation_dialog", "elicitation_complete", "elicitation_response")
+
+### Elicitation
+
+MCP 서버가 사용자 입력을 요청할 때 발생합니다. 훅이 대화 상자 없이 자동으로 응답합니다.
+
+**입력 필드**: `mcp_server_name`, `message`, `mode` ("form" 또는 "url"), `elicitation_id`, `requested_schema`
+
+**종료 코드**:
+- `0`: hookSpecificOutput이 제공되면 사용; 그렇지 않으면 대화 상자 표시
+- `2`: 요청 거부
+- 기타: stderr이 사용자에게 표시됨
+
+**hookSpecificOutput 필드**:
+- `action`: "accept"/"decline"/"cancel"
+- `content`: action이 "accept"일 때 폼 데이터
+
+### ElicitationResult
+
+사용자가 MCP 요청에 응답한 후 발생합니다. 훅이 응답을 관찰하거나 재정의합니다.
+
+**입력 필드**: `mcp_server_name`, `elicitation_id`, `action`, `content`
+
+**hookSpecificOutput 필드**:
+- `action`: 사용자의 action 재정의
+- `content`: 제출된 content 재정의
+
+### ConfigChange
+
+세션 중 설정 파일이 변경될 때 발생합니다.
+
+**입력 필드**: `source` ("user_settings", "project_settings", "local_settings", "policy_settings", "skills"), `file_path`
+
+**종료 코드**:
+- `0`: 변경 적용 허용
+- `2`: 변경 적용 차단
+- 기타: stderr이 사용자에게 표시됨
+
+### InstructionsLoaded
+
+CLAUDE.md 또는 지시사항 규칙이 로드될 때의 관찰 전용 이벤트입니다.
+
+**입력 필드**: `file_path`, `memory_type` ("User", "Project", "Local", "Managed"), `load_reason` ("session_start", "nested_traversal", "path_glob_match", "include", "compact"), `globs`, `trigger_file_path`, `parent_file_path`
+
+### WorktreeCreate
+
+worktree 격리가 필요할 때 발생합니다. 훅이 worktree를 생성하고 경로를 보고합니다.
+
+**입력 필드**: `name` (제안된 slug)
+
+**동작**: 종료 코드 0과 함께 절대 경로를 stdout에 작성합니다; 다른 코드는 실패를 알립니다.
+
+### WorktreeRemove
+
+worktree 정리가 필요할 때 발생합니다.
+
+**입력 필드**: `worktree_path`
+
+**동작**: 종료 코드 0은 성공; 다른 코드는 stderr을 사용자에게 표시합니다.
+
+### CwdChanged
+
+작업 디렉토리 변경 후 발생합니다.
+
+**입력 필드**: `old_cwd`, `new_cwd`
+
+**hookSpecificOutput 필드**:
+- `watchPaths`: FileChanged 감시기에 추가할 절대 경로
+
+환경 변수 주입을 위해 `CLAUDE_ENV_FILE` 변수가 설정됩니다.
+
+### FileChanged
+
+감시 중인 파일이 수정, 추가, 또는 제거될 때 발생합니다.
+
+**입력 필드**: `file_path`, `event` ("change", "add", "unlink")
+
+**hookSpecificOutput 필드**:
+- `watchPaths`: 절대 경로로 감시 목록 업데이트
+
+환경 변수 주입을 위해 `CLAUDE_ENV_FILE` 변수가 설정됩니다.
+
+## 비동기 훅
+
+Claude를 차단하지 않고 백그라운드에서 실행하려면 비동기 확인 응답을 출력합니다:
+
+```json
+{
+  "async": true,
+  "asyncTimeout": 30
+}
+```
+
+비동기 훅은 도구 실행을 차단하거나 컨텍스트를 주입할 수 없습니다 — 알림, 로깅, 또는 비차단 작업이 필요한 메트릭과 같은 부수 효과에 사용합니다.

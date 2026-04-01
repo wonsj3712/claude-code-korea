@@ -1,0 +1,264 @@
+---
+title: "설치"
+description: "macOS, Linux 또는 Windows(WSL)에서 Claude Code를 설치합니다. Node.js 18 이상이 필요합니다."
+---
+
+## 요구 사항
+
+* **Node.js 18 이상** — Claude Code는 시작 시 Node.js 버전을 확인하며, 18 미만이면 오류와 함께 종료됩니다.
+* **npm** — Node.js에 포함되어 있습니다.
+
+현재 버전을 확인합니다:
+
+```bash
+node --version
+npm --version
+```
+
+---
+
+## Claude Code 설치
+
+npm으로 전역 설치합니다:
+
+```bash
+npm install -g @anthropic-ai/claude-code
+```
+
+설치 후 정상 작동을 확인합니다:
+
+```bash
+claude --version
+```
+
+---
+
+## 플랫폼별 참고 사항
+
+<Tabs>
+  <Tab title="macOS">
+    macOS에서 npm 전역 설치는 기본적으로 정상 작동합니다. `npm install -g` 실행 시 권한 오류가 발생하면 두 가지 방법이 있습니다:
+
+    **방법 A: npm 권한 수정 (권장)**
+
+    npm이 홈 폴더 내의 디렉토리를 사용하도록 설정합니다:
+
+    ```bash
+    mkdir -p ~/.npm-global
+    npm config set prefix ~/.npm-global
+    ```
+
+    셸 프로필 (`~/.zshrc` 또는 `~/.bash_profile`)에 다음을 추가합니다:
+
+    ```bash
+    export PATH=~/.npm-global/bin:$PATH
+    ```
+
+    프로필을 다시 로드하고 설치합니다:
+
+    ```bash
+    source ~/.zshrc
+    npm install -g @anthropic-ai/claude-code
+    ```
+
+    **방법 B: Node 버전 관리자 사용**
+
+    [nvm](https://github.com/nvm-sh/nvm)이나 [fnm](https://github.com/Schniz/fnm) 같은 도구는 Node.js를 홈 디렉토리에 설치하므로, 전역 권한 문제를 완전히 피할 수 있습니다:
+
+    ```bash
+    # nvm 사용
+    nvm install --lts
+    nvm use --lts
+    npm install -g @anthropic-ai/claude-code
+    ```
+  </Tab>
+
+  <Tab title="Linux">
+    대부분의 Linux 배포판에서 `npm install -g`는 `sudo` 또는 수정된 npm prefix가 필요합니다. `sudo` 사용은 나중에 권한 문제를 일으킬 수 있으므로 권장하지 않습니다.
+
+    **권장: Node 버전 관리자 사용**
+
+    ```bash
+    # nvm 설치
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+
+    # 셸을 다시 로드한 후 Node.js 설치
+    nvm install --lts
+    nvm use --lts
+
+    # Claude Code 설치
+    npm install -g @anthropic-ai/claude-code
+    ```
+
+    **대안: npm 전역 prefix 수정**
+
+    ```bash
+    mkdir -p ~/.npm-global
+    npm config set prefix ~/.npm-global
+    echo 'export PATH=~/.npm-global/bin:$PATH' >> ~/.bashrc
+    source ~/.bashrc
+    npm install -g @anthropic-ai/claude-code
+    ```
+  </Tab>
+
+  <Tab title="Windows (WSL)">
+    Claude Code는 Windows에서 Windows Subsystem for Linux(WSL)를 통해 실행됩니다. 명령 프롬프트나 PowerShell에서 직접 실행하는 것은 지원되지 않습니다.
+
+    **Step 1: WSL 설치**
+
+    관리자 권한으로 PowerShell을 열고 실행합니다:
+
+    ```powershell
+    wsl --install
+    ```
+
+    프롬프트가 나타나면 컴퓨터를 재시작합니다. 기본적으로 Ubuntu와 함께 WSL 2가 설치됩니다.
+
+    **Step 2: WSL 터미널 열기**
+
+    시작 메뉴에서 Ubuntu를 실행하거나, PowerShell에서 `wsl`을 실행합니다.
+
+    **Step 3: WSL 내에서 Node.js 설치**
+
+    ```bash
+    curl -o- https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.0/install.sh | bash
+    source ~/.bashrc
+    nvm install --lts
+    nvm use --lts
+    ```
+
+    **Step 4: Claude Code 설치**
+
+    ```bash
+    npm install -g @anthropic-ai/claude-code
+    ```
+
+    <Note>
+      `claude`는 항상 WSL 터미널에서 실행하세요. Windows CMD나 PowerShell에서는 사용하지 마세요. 최상의 성능을 위해 프로젝트 파일은 WSL 파일시스템 내(예: `~/projects/`)에 위치시켜야 합니다. `/mnt/c/...`를 통해 Windows 파일에 접근하는 것도 가능하지만 더 느립니다.
+    </Note>
+  </Tab>
+</Tabs>
+
+---
+
+## 업데이트
+
+Claude Code를 최신 버전으로 업데이트합니다:
+
+```bash
+npm update -g @anthropic-ai/claude-code
+```
+
+또는 Claude Code의 내장 업데이트 명령어를 사용합니다:
+
+```bash
+claude update
+```
+
+현재 실행 중인 버전을 확인합니다:
+
+```bash
+claude --version
+```
+
+---
+
+## 제거
+
+Claude Code를 제거합니다:
+
+```bash
+npm uninstall -g @anthropic-ai/claude-code
+```
+
+이렇게 하면 `claude` 바이너리가 제거됩니다. `~/.claude/` 디렉토리의 설정 파일은 자동으로 제거되지 않습니다. 삭제하려면:
+
+```bash
+rm -rf ~/.claude
+```
+
+---
+
+## 문제 해결
+
+<AccordionGroup>
+  <Accordion title="설치 후 'claude' 명령어를 찾을 수 없는 경우">
+    이 문제는 보통 npm 전역 bin 디렉토리가 `PATH`에 포함되지 않았을 때 발생합니다.
+
+    npm이 전역 바이너리를 설치하는 위치를 확인합니다:
+
+    ```bash
+    npm config get prefix
+    ```
+
+    해당 경로의 `bin` 하위 디렉토리가 `PATH`에 포함되어야 합니다. 예를 들어, 출력이 `/home/you/.npm-global`이라면, 셸 프로필에 다음을 추가합니다:
+
+    ```bash
+    export PATH=/home/you/.npm-global/bin:$PATH
+    ```
+
+    셸을 다시 로드(`source ~/.zshrc` 또는 새 터미널 열기)한 후 다시 시도합니다.
+  </Accordion>
+
+  <Accordion title="Node.js 버전이 18 미만인 경우">
+    Claude Code는 Node.js 18 이상이 필요합니다. 시작 시 다음 오류가 표시되면:
+
+    ```
+    Error: Claude Code requires Node.js version 18 or higher.
+    ```
+
+    버전 관리자를 사용하여 Node.js를 업그레이드합니다:
+
+    ```bash
+    # nvm
+    nvm install --lts
+    nvm use --lts
+
+    # fnm
+    fnm install --lts
+    fnm use --lts
+    ```
+
+    또는 [nodejs.org](https://nodejs.org)에서 최신 LTS 릴리스를 다운로드합니다.
+  </Accordion>
+
+  <Accordion title="npm install -g 실행 시 권한 거부 오류">
+    `sudo npm install -g`를 사용하지 마세요 — root 소유의 파일이 남아 추가적인 문제를 일으킬 수 있습니다. 대신, npm prefix를 사용자가 쓸 수 있는 디렉토리로 변경합니다:
+
+    ```bash
+    mkdir -p ~/.npm-global
+    npm config set prefix ~/.npm-global
+    export PATH=~/.npm-global/bin:$PATH
+    npm install -g @anthropic-ai/claude-code
+    ```
+
+    세션 간에 유지되도록 `export PATH` 줄을 셸 프로필에 추가합니다.
+  </Accordion>
+
+  <Accordion title="첫 실행 시 인증 실패">
+    브라우저 기반 OAuth 흐름이 실패하거나 브라우저를 사용할 수 없는 경우, 환경 변수로 API 키를 직접 설정합니다:
+
+    ```bash
+    export ANTHROPIC_API_KEY=sk-ant-...
+    claude
+    ```
+
+    영구적으로 사용하려면 셸 프로필에 추가할 수 있습니다. API 키는 [Anthropic Console](https://console.anthropic.com)에서 발급받을 수 있습니다.
+  </Accordion>
+
+  <Accordion title="Docker 또는 CI 환경에서 실행">
+    비대화형 환경에서는 환경 변수를 통해 API 키로 인증합니다:
+
+    ```bash
+    export ANTHROPIC_API_KEY=sk-ant-...
+    ```
+
+    `-p` 플래그를 사용하여 비대화형으로 실행합니다:
+
+    ```bash
+    claude -p "run the test suite and report any failures"
+    ```
+
+    샌드박스 컨테이너에서 권한 프롬프트 없이 Claude Code를 실행해야 하는 경우, `--dangerously-skip-permissions` 플래그를 사용합니다. 이 플래그는 Claude Code의 샌드박스 안전 검사를 통과한 환경(인터넷 접근 불가 및 컨테이너 외부에서 root로 실행되지 않는 환경)에서만 작동합니다.
+  </Accordion>
+</AccordionGroup>

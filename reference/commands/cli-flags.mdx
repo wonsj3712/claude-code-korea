@@ -1,0 +1,85 @@
+---
+title: "CLI 플래그"
+description: "Claude Code 시작 시 사용할 수 있는 모든 명령줄 플래그 레퍼런스"
+---
+
+# CLI 플래그
+
+Claude를 시작할 때 전달하는 명령줄 옵션입니다. 세션이 시작되기 전에 동작을 구성합니다.
+
+## 핵심 기능
+
+| 플래그 | 별칭 | 타입 | 설명 | 기본값 | 예시 |
+|--------|------|------|------|--------|------|
+| `-p, --print` | — | Boolean | 비대화형 모드로 Claude를 실행합니다. Claude가 프롬프트(인수 또는 stdin에서)를 처리하고, 응답을 출력한 후 종료합니다. | false | `claude -p "explain the main function"` |
+| `--output-format` | — | String | 출력 형식을 지정합니다: `text`(일반 텍스트), `json`(단일 JSON 객체), 또는 `stream-json`(줄바꿈으로 구분된 JSON) | `text` | `claude -p "list functions" --output-format json` |
+| `--input-format` | — | String | stdin 입력 형식을 설정합니다: `text`(일반 텍스트) 또는 `stream-json`(줄바꿈으로 구분된 JSON) | `text` | `cat messages.jsonl \| claude -p --input-format stream-json` |
+| `--verbose` | — | Boolean | 상세 출력을 활성화합니다. 설정 파일의 `verbose` 설정을 덮어씁니다. | false | `claude --verbose` |
+| `-v, --version` | — | Boolean | 버전 번호를 출력하고 종료합니다 | — | `claude --version` |
+| `-h, --help` | — | Boolean | 명령어 도움말을 표시하고 종료합니다 | — | `claude --help` |
+
+## 세션 관리
+
+| 플래그 | 별칭 | 타입 | 설명 | 기본값 | 예시 |
+|--------|------|------|------|--------|------|
+| `-c, --continue` | — | Boolean | 현재 디렉토리에서 가장 최근 대화를 세션 선택 없이 바로 이어서 진행합니다. | false | `claude --continue` |
+| `-r, --resume` | — | Optional String | 세션 ID로 대화를 재개합니다. 값 없이 사용하면 과거 세션을 검색할 수 있는 대화형 선택기가 열립니다. | — | `claude --resume 550e8400-e29b-41d4-a716-446655440000` |
+| `--fork-session` | — | Boolean | `--continue` 또는 `--resume`과 함께 사용하면 재개된 대화에서 분기된 새 세션을 생성합니다. | false | `claude --resume <id> --fork-session` |
+| `-n, --name` | — | String | 세션의 표시 이름을 설정합니다. 이름은 `/resume`과 터미널 제목에 표시됩니다. | 자동 생성 | `claude --name "auth-refactor"` |
+| `--session-id` | — | UUID | 생성된 ID 대신 특정 UUID를 세션 ID로 사용합니다. 유효한 UUID여야 합니다. | 자동 생성 | `claude --session-id 550e8400-e29b-41d4-a716-446655440000` |
+| `--no-session-persistence` | — | Boolean | 세션 지속성을 비활성화합니다. 세션이 디스크에 저장되지 않으며 재개할 수 없습니다. | false | `claude -p "task" --no-session-persistence` |
+
+## 모델 설정
+
+| 플래그 | 별칭 | 타입 | 설명 | 기본값 | 예시 |
+|--------|------|------|------|--------|------|
+| `--model` | — | String | 세션의 모델을 설정합니다. 별칭(예: `sonnet`, `opus`, `haiku`) 또는 전체 모델 ID를 사용할 수 있습니다. | 구성된 기본값 | `claude --model sonnet` |
+| `--effort` | — | String | 세션의 노력 수준을 설정합니다. Claude가 각 응답에 적용하는 연산량을 제어합니다. 옵션: `low`, `medium`, `high`, `max` | `medium` | `claude --effort high "review architecture"` |
+| `--fallback-model` | — | String | 기본 모델이 과부하일 때 다른 모델로 자동 전환합니다. `--print`에서만 작동합니다. | — | `claude -p "analyze" --model opus --fallback-model sonnet` |
+
+## 보안 제어
+
+| 플래그 | 별칭 | 타입 | 설명 | 기본값 | 예시 |
+|--------|------|------|------|--------|------|
+| `--permission-mode` | — | String | 세션의 권한 모드를 설정합니다. 옵션: `default`, `acceptEdits`, `plan`, `bypassPermissions` | `default` | `claude --permission-mode acceptEdits` |
+| `--dangerously-skip-permissions` | — | Boolean | 모든 권한 검사를 우회합니다. Claude가 파일 편집, 셸 명령어 등 모든 작업을 확인 없이 수행합니다. | false | `claude --dangerously-skip-permissions -p "run tests"` |
+| `--allow-dangerously-skip-permissions` | — | Boolean | 모든 권한 검사 우회를 기본 활성화하지 않고 세션 중 옵션으로 사용할 수 있게 합니다. | false | `claude --allow-dangerously-skip-permissions -p "..."` |
+| `--allowed-tools` | `--allowedTools` | String (쉼표/공백 구분) | Claude가 사용할 수 있는 도구의 쉼표 또는 공백 구분 목록입니다. 이 목록에 없는 도구는 차단됩니다. | 모든 도구 | `claude --allowed-tools "Bash(git:*) Edit Read"` |
+| `--disallowed-tools` | `--disallowedTools` | String (쉼표/공백 구분) | Claude가 사용할 수 없는 도구의 쉼표 또는 공백 구분 목록입니다. | 차단 없음 | `claude --disallowed-tools "Bash(rm:*)"` |
+| `--tools` | — | String (공백 구분) | 세션에서 사용 가능한 내장 도구의 정확한 세트를 지정합니다. `""`로 모든 도구를 비활성화하고, `default`로 모든 도구를 활성화합니다. | `default` | `claude --tools "Bash Read"` |
+
+## 컨텍스트 관리
+
+| 플래그 | 별칭 | 타입 | 설명 | 기본값 | 예시 |
+|--------|------|------|------|--------|------|
+| `--add-dir` | — | 경로 (반복 가능) | 도구 접근 컨텍스트에 하나 이상의 디렉토리를 추가합니다. Claude가 이 디렉토리의 파일을 읽고 편집할 수 있게 됩니다. | 현재 디렉토리만 | `claude --add-dir /shared/libs --add-dir /shared/config` |
+| `--system-prompt` | — | String | 기본 시스템 프롬프트를 사용자 정의 프롬프트로 대체합니다. `--system-prompt-file`과 함께 사용할 수 없습니다. | 내장 기본값 | `claude --system-prompt "You are a security auditor."` |
+| `--append-system-prompt` | — | String | 기본 시스템 프롬프트에 텍스트를 추가합니다. `--system-prompt`와 달리 Claude의 내장 지침을 유지합니다. | — | `claude --append-system-prompt "Always suggest test cases."` |
+| `--mcp-config` | — | 경로 또는 JSON (반복 가능) | 하나 이상의 JSON 설정 파일 또는 인라인 JSON 문자열에서 MCP 서버를 로드합니다. 여러 값은 공백으로 구분합니다. | 사용자/프로젝트 설정 | `claude --mcp-config ./mcp-servers.json` |
+| `--strict-mcp-config` | — | Boolean | `--mcp-config`의 MCP 서버만 사용하고, 다른 모든 MCP 설정을 무시합니다. | false | `claude --mcp-config ./ci-tools.json --strict-mcp-config` |
+| `--settings` | — | 파일 경로 또는 JSON | JSON 파일 경로 또는 인라인 JSON 문자열에서 추가 설정을 로드합니다. | — | `claude --settings ./team-settings.json` |
+| `--setting-sources` | — | String (쉼표 구분) | 로드할 설정 소스의 쉼표 구분 목록입니다. 옵션: `user`, `project`, `local` | `user,project,local` | `claude --setting-sources user` |
+| `--agents` | — | JSON | 사용자 정의 에이전트를 인라인 JSON 객체로 정의합니다. 각 키는 에이전트 이름이고, 값은 `description`과 `prompt`를 포함하는 객체입니다. | — | `claude --agents '{"reviewer":{"description":"Reviews code","prompt":"..."}}'` |
+
+## 출력 제어
+
+| 플래그 | 별칭 | 타입 | 설명 | 기본값 | 예시 |
+|--------|------|------|------|--------|------|
+| `--include-hook-events` | — | Boolean | 출력 스트림에 모든 훅 생명주기 이벤트를 포함합니다. `--output-format stream-json`에서만 작동합니다. | false | `claude -p "run task" --output-format stream-json --include-hook-events` |
+| `--max-turns` | — | Integer | 비대화형 모드에서 에이전트 턴 수를 제한합니다. 이 횟수 이후 Claude가 멈춥니다. `--print`에서만 작동합니다. | 무제한 | `claude -p "refactor" --max-turns 10` |
+| `--max-budget-usd` | — | Decimal | API 호출에 사용할 최대 금액(달러)을 설정합니다. 예산에 도달하면 Claude가 멈춥니다. `--print`에서만 작동합니다. | 무제한 | `claude -p "analyze" --max-budget-usd 2.50` |
+| `--json-schema` | — | JSON Schema | 구조화된 출력 검증을 위한 JSON Schema를 제공합니다. Claude의 응답이 이 스키마에 대해 검증됩니다. | — | `claude -p "extract names" --output-format json --json-schema '{...}'` |
+
+## 개발 기능
+
+| 플래그 | 별칭 | 타입 | 설명 | 기본값 | 예시 |
+|--------|------|------|------|--------|------|
+| `-w, --worktree` | — | Optional String | 이 세션을 위한 새 git worktree를 생성합니다. 선택적으로 worktree 브랜치의 이름을 지정할 수 있습니다. PR 번호나 URL도 사용할 수 있습니다. | — | `claude --worktree feature-auth` |
+| `--tmux` | — | Boolean | worktree와 함께 tmux 세션을 생성합니다. `--worktree`가 필요합니다. 사용 가능한 경우 iTerm2 네이티브 패널을 사용합니다. | false | `claude --worktree feature-auth --tmux` |
+| `-d, --debug` | — | Optional String (필터) | 디버그 모드를 활성화합니다. 선택적으로 필터를 전달하여 표시되는 디버그 카테고리를 제한할 수 있습니다. | 비활성화 | `claude --debug "api,hooks"` |
+| `--debug-file` | — | 파일 경로 | 디버그 로그를 인라인 표시 대신 특정 파일 경로에 작성합니다. 디버그 모드를 암시적으로 활성화합니다. | 콘솔 출력 | `claude --debug-file /tmp/claude-debug.log` |
+| `--bare` | — | Boolean | 최소 모드. 훅, LSP, 플러그인 동기화, 귀속 정보, 자동 메모리, 백그라운드 프리페치, 키체인 읽기, `CLAUDE.md` 자동 검색을 건너뜁니다. | false | `claude --bare -p "perform analysis"` |
+
+<Note>
+많은 세션 플래그는 `/model`과 `/permissions` 같은 슬래시 명령어를 사용하여 세션 중간에 변경할 수 있습니다.
+</Note>

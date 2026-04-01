@@ -1,0 +1,103 @@
+{
+  "$schema": "https://mintlify.com/schema.json",
+  "name": "Claude Code 한글 문서",
+  "logo": {
+    "dark": "/logo/dark.svg",
+    "light": "/logo/light.svg"
+  },
+  "favicon": "/favicon.svg",
+  "colors": {
+    "primary": "#D97706",
+    "light": "#F59E0B",
+    "dark": "#B45309",
+    "anchors": {
+      "from": "#D97706",
+      "to": "#F59E0B"
+    }
+  },
+  "topbarLinks": [
+    {
+      "name": "원본 문서 (English)",
+      "url": "https://www.mintlify.com/VineeTagarwaL-code/claude-code"
+    }
+  ],
+  "tabs": [
+    {
+      "name": "API 레퍼런스",
+      "url": "api-reference"
+    }
+  ],
+  "anchors": [
+    {
+      "name": "GitHub",
+      "icon": "github",
+      "url": "https://github.com/VineeTagarwaL-code/claude-code"
+    }
+  ],
+  "navigation": [
+    {
+      "group": "시작하기",
+      "pages": [
+        "introduction",
+        "quickstart",
+        "installation"
+      ]
+    },
+    {
+      "group": "개념",
+      "pages": [
+        "concepts/how-it-works",
+        "concepts/memory-context",
+        "concepts/permissions",
+        "concepts/tools"
+      ]
+    },
+    {
+      "group": "설정",
+      "pages": [
+        "configuration/claudemd",
+        "configuration/environment-variables",
+        "configuration/settings"
+      ]
+    },
+    {
+      "group": "가이드",
+      "pages": [
+        "guides/authentication",
+        "guides/hooks",
+        "guides/mcp-servers",
+        "guides/multi-agent",
+        "guides/skills"
+      ]
+    },
+    {
+      "group": "레퍼런스 - 커맨드",
+      "pages": [
+        "reference/commands/overview",
+        "reference/commands/cli-flags",
+        "reference/commands/slash-commands"
+      ]
+    },
+    {
+      "group": "레퍼런스 - SDK",
+      "pages": [
+        "reference/sdk/overview",
+        "reference/sdk/hooks-reference",
+        "reference/sdk/permissions-api"
+      ]
+    },
+    {
+      "group": "레퍼런스 - 도구",
+      "pages": [
+        "reference/tools/agent",
+        "reference/tools/bash",
+        "reference/tools/file-operations",
+        "reference/tools/search",
+        "reference/tools/web"
+      ]
+    }
+  ],
+  "footerSocials": {
+    "github": "https://github.com/VineeTagarwaL-code/claude-code"
+  }
+}

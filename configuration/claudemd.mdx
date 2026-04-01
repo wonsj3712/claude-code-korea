@@ -1,0 +1,193 @@
+---
+title: "CLAUDE.md"
+description: "Claude에게 지속적이고 프로젝트별 지침을 제공하기 위한 CLAUDE.md 파일 작성 및 구성 방법"
+---
+
+`CLAUDE.md` 파일을 사용하면 Claude가 모든 세션을 시작할 때 자동으로 불러오는 프로젝트 지식을 기록할 수 있습니다. 프로젝트의 컨벤션, 빌드 시스템, 아키텍처를 매번 설명하는 대신, 한 번만 작성해두면 Claude가 자동으로 읽어들입니다.
+
+## CLAUDE.md에 포함해야 할 내용
+
+**이 줄이 빠지면 실수가 발생할 내용만 작성하세요. 나머지는 불필요한 정보입니다.**
+
+**포함할 내용:**
+
+* 빌드, 테스트, 린트 명령어 (도구 이름이 아닌 정확한 실행 명령)
+* 코드 작성 및 구성 방식에 영향을 미치는 아키텍처 결정
+* 프로젝트에 고유한 코딩 컨벤션 (네이밍 패턴, 파일 구조 규칙)
+* 환경 설정 요구사항 (필수 환경 변수, 필요한 서비스)
+* Claude가 반드시 알아야 할 흔한 함정이나 패턴
+* 모노레포 구조 및 각 패키지의 역할
+
+**제외할 내용:**
+
+* Claude가 이미 알고 있는 내용 (표준 TypeScript 문법, 일반적인 라이브러리 API)
+* 당연한 조언 ("깨끗한 코드를 작성하세요", "주석을 추가하세요")
+* 민감한 데이터 — API 키, 비밀번호, 토큰 또는 어떤 종류의 시크릿도 안 됨
+* 자주 변경되어 금방 오래될 정보
+
+<Tip>
+테스트 기준: 이 줄을 제거하면 Claude가 이 코드베이스에서 실수를 할까요? 아니라면 삭제하세요.
+</Tip>
+
+## 파일 위치
+
+Claude는 현재 디렉토리에서 파일 시스템 루트까지 상위로 탐색하면서 메모리 파일을 찾습니다. 현재 디렉토리에 가까운 파일일수록 우선순위가 높습니다 (나중에 로드되므로 모델이 더 주의를 기울입니다).
+
+| 파일 | 유형 | 용도 |
+|------|------|------|
+| `/etc/claude-code/CLAUDE.md` | 관리형 | 관리자가 설정하는 모든 사용자 대상 시스템 전체 지침 |
+| `~/.claude/CLAUDE.md` | 사용자 | 모든 프로젝트에 적용되는 개인 글로벌 지침 |
+| `~/.claude/rules/*.md` | 사용자 | 모듈형 글로벌 규칙, 각 파일이 별도로 로드됨 |
+| `CLAUDE.md` (프로젝트 루트) | 프로젝트 | 소스 컨트롤에 커밋되는 공유 팀 지침 |
+| `.claude/CLAUDE.md` (프로젝트 루트) | 프로젝트 | 공유 프로젝트 지침의 대체 위치 |
+| `.claude/rules/*.md` (프로젝트 루트) | 프로젝트 | 주제별로 정리된 모듈형 프로젝트 규칙 |
+| `CLAUDE.local.md` (프로젝트 루트) | 로컬 | 커밋하지 않는 개인 프로젝트 전용 지침 |
+
+<Note>
+`.claude/rules/` 디렉토리는 하위 디렉토리를 지원합니다. 재귀적으로 발견되는 모든 `.md` 파일이 별도의 메모리 항목으로 로드됩니다.
+</Note>
+
+## 로딩 순서 및 우선순위
+
+파일은 다음 순서로 로드됩니다. 모델은 컨텍스트에서 나중에 나타나는 내용에 더 주의를 기울이므로, 나중에 로드되는 파일이 실질적으로 더 높은 우선순위를 가집니다.
+
+**1단계 - 관리형 메모리:** `/etc/claude-code/CLAUDE.md` 및 `/etc/claude-code/rules/*.md` — 관리자가 설정하는 글로벌 정책. 항상 로드되며 사용자가 제외할 수 없습니다.
+
+**2단계 - 사용자 메모리:** `~/.claude/CLAUDE.md` 및 `~/.claude/rules/*.md` — 모든 프로젝트에 적용되는 개인 글로벌 지침.
+
+**3단계 - 프로젝트 메모리 (루트에서 CWD까지):** 파일 시스템 루트에서 현재 디렉토리까지 각 디렉토리의 `CLAUDE.md`, `.claude/CLAUDE.md`, `.claude/rules/*.md` 파일. CWD에 가까운 디렉토리의 파일이 나중에 로드됩니다 (더 높은 우선순위).
+
+**4단계 - 로컬 메모리:** 루트에서 CWD까지 각 디렉토리의 `CLAUDE.local.md`. 동일한 탐색 순서. 기본적으로 gitignore 처리됩니다.
+
+## @include 지시문
+
+메모리 파일은 `@` 표기법을 사용하여 다른 파일을 포함할 수 있습니다. 포함된 파일은 재귀적으로 처리되며 참조하는 파일 앞에 삽입됩니다.
+
+```markdown
+# CLAUDE.md
+
+@./docs/architecture.md
+@~/shared/style-guide.md
+@/etc/company-standards.md
+```
+
+**지원되는 경로 형식:**
+
+| 문법 | 해석 |
+|------|------|
+| `@filename` | 현재 파일의 디렉토리 기준 상대 경로 (`@./filename`과 동일) |
+| `@./relative/path` | 현재 파일의 디렉토리 기준 상대 경로 |
+| `@~/path/in/home` | 홈 디렉토리 하위 경로 |
+| `@/absolute/path` | 절대 파일 시스템 경로 |
+
+**동작 방식:**
+
+* 프래그먼트(`#heading`)가 포함된 경로는 해석 전에 프래그먼트가 제거됩니다
+* 존재하지 않는 파일은 조용히 무시됩니다
+* 순환 참조가 감지되어 방지됩니다
+* 포함은 최대 5단계 깊이까지 중첩됩니다
+* 텍스트 파일 형식만 지원됩니다 — 바이너리 파일(이미지, PDF)은 건너뜁니다
+* 코드 블록 내부의 `@include`는 처리되지 않습니다
+
+<Warning>
+외부 포함(프로젝트 디렉토리 밖의 파일)은 처음 로드될 때 명시적인 승인이 필요합니다. Claude가 프로젝트 외부에서 콘텐츠를 가져오기 전에 확인을 요청합니다.
+</Warning>
+
+## 프론트매터 경로 타겟팅
+
+`.claude/rules/`의 파일은 YAML 프론트매터를 사용하여 적용되는 파일 경로를 제한할 수 있습니다. 이를 통해 Claude가 작업 중인 파일에 따라 조건부로 규칙을 로드할 수 있습니다.
+
+```markdown
+---
+paths:
+  - "src/api/**"
+  - "*.graphql"
+---
+
+# API 컨벤션
+
+모든 API 핸들러는 공유 `validate()` 헬퍼를 사용하여 입력을 검증해야 합니다.
+GraphQL 리졸버는 직접 데이터베이스 쿼리를 수행해서는 안 됩니다 — 데이터 레이어를 사용하세요.
+```
+
+프론트매터가 없는 규칙은 무조건 적용됩니다. `paths` 프론트매터가 있는 규칙은 Claude가 해당 glob 패턴과 일치하는 파일에서 작업할 때만 적용됩니다.
+
+## TypeScript 프로젝트용 CLAUDE.md 예시
+
+```markdown
+# Project: Payments API
+
+## Build and test
+
+- Build: `bun run build`
+- Tests: `bun test` (uses Bun's built-in test runner — do not use Jest)
+- Lint: `bun run lint` (biome, not eslint)
+- Type check: `bun run typecheck`
+
+Always run `bun run typecheck` before considering a change complete.
+
+## Architecture
+
+- `src/handlers/` — HTTP handlers, one file per route group
+- `src/services/` — Business logic, no direct DB access
+- `src/db/` — Database layer (Drizzle ORM); all queries live here
+- `src/schemas/` — Zod schemas shared between handler validation and DB types
+
+Handlers call services. Services call the DB layer. Never skip layers.
+
+## Conventions
+
+- Use `z.object().strict()` for all input validation schemas
+- Errors propagate as `Result<T, AppError>` — never throw in service code
+- All monetary values are integers in cents
+- Timestamps are Unix seconds (number), not Date objects
+
+## Environment
+
+Required env vars: `DATABASE_URL`, `STRIPE_SECRET_KEY`, `JWT_SECRET`
+Local dev: copy `.env.example` to `.env.local` and fill in values
+
+## Common mistakes to avoid
+
+- Do not use `new Date()` directly — use `getCurrentTimestamp()` from `src/utils/time.ts`
+- Do not add `console.log` — use the `logger` from `src/utils/logger.ts`
+- Do not write raw SQL — use the Drizzle query builder
+```
+
+## /init으로 CLAUDE.md 생성하기
+
+Claude Code 세션에서 `/init`을 실행하면 프로젝트에 맞는 `CLAUDE.md`를 자동으로 생성합니다. Claude가 코드베이스를 분석하여 프로젝트에 가장 관련 있는 명령어와 컨텍스트가 포함된 파일을 생성합니다.
+
+```
+/init
+```
+
+생성된 파일은 출발점입니다. 검토한 후 실제로 유용하지 않은 내용은 정리하고, Claude가 코드에서 추론할 수 없는 프로젝트별 지식을 추가하세요.
+
+## /memory로 CLAUDE.md 편집하기
+
+`/memory`를 실행하면 메모리 편집기가 열리며, 현재 로드된 모든 메모리 파일을 나열하고 세션 내에서 직접 편집할 수 있습니다.
+
+```
+/memory
+```
+
+변경 사항은 즉시 적용됩니다 — Claude가 업데이트된 파일을 다시 로드하고 새로운 지침을 현재 세션에 적용합니다.
+
+## 파일 제외하기
+
+Claude가 로드하지 않도록 하려는 CLAUDE.md 파일이 있는 경우 (예: 벤더 종속성이나 생성된 코드에 있는 파일), 설정에 제외 패턴을 추가하세요:
+
+```json
+{
+  "claudeMdExcludes": [
+    "/absolute/path/to/vendor/CLAUDE.md",
+    "**/generated/**",
+    "**/third-party/.claude/rules/**"
+  ]
+}
+```
+
+패턴은 picomatch를 사용하여 절대 경로와 매칭됩니다. 사용자, 프로젝트, 로컬 메모리 유형만 제외할 수 있으며, 관리형(관리자) 파일은 항상 로드됩니다.
+
+`claudeMdExcludes` 옵션에 대한 전체 문서는 [설정](/configuration/settings)을 참조하세요.

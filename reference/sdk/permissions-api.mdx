@@ -1,0 +1,216 @@
+---
+title: "권한 API"
+description: "Claude Code의 권한 시스템 — 권한 모드, 규칙 구문, 평가 파이프라인에 대한 종합 가이드"
+---
+
+# 권한 API
+
+권한 시스템은 Claude Code가 도구를 즉시 실행할지, 확인을 요청할지, 작업을 차단할지를 제어합니다. 전역, 프로젝트, 또는 세션 수준에서 권한 모드와 규칙 목록을 통해 설정합니다.
+
+## 권한 모드
+
+다섯 가지 기본 모드가 기본 도구 동작을 설정합니다:
+
+| 모드 | 동작 |
+|------|------|
+| `default` | 잠재적으로 위험한 작업에 대해 승인을 요청합니다. 안전한 읽기 전용 도구는 중단 없이 실행됩니다. |
+| `acceptEdits` | 파일 수정(`Write`, `Edit`, `MultiEdit`)을 자동 승인합니다. bash 명령어는 여전히 확인이 필요합니다. |
+| `bypassPermissions` | 모든 권한 검사를 건너뜁니다. `allowDangerouslySkipPermissions: true` 설정이 필요합니다. |
+| `plan` | 읽기 전용 모드입니다. Claude가 파일을 분석하지만 어떤 작업도 실행하지 않습니다. |
+| `dontAsk` | 명시적 사전 승인 규칙이 없는 모든 도구 호출을 거부합니다. |
+
+<Warning>
+우회 모드는 안전장치를 비활성화하며 통제된 샌드박스 환경에서만 실행해야 합니다.
+</Warning>
+
+## 설정 방법
+
+### CLI 방식
+
+```bash
+claude --permission-mode acceptEdits
+```
+
+### 설정 파일 (우선순위 순으로 평가)
+
+| 파일 | 우선순위 |
+|------|----------|
+| `.claude/settings.local.json` | 최고 |
+| `.claude/settings.json` | 중간 |
+| `~/.claude/settings.json` | 최저 |
+
+### 대화형 세션
+
+`/permissions`를 실행하여 패널에 접근합니다.
+
+### SDK 제어
+
+`set_permission_mode` 하위 유형으로 `control_request`를 사용합니다.
+
+## 권한 규칙
+
+규칙은 전역 모드를 수정하지 않고 특정 도구를 사전 승인하거나 차단합니다.
+
+### 설정 구조
+
+```json
+{
+  "permissions": {
+    "allow": ["Bash(git *)", "Write(src/**)"],
+    "deny": ["Bash(rm -rf *)", "Write(/etc/**)"]
+  }
+}
+```
+
+### 규칙 구문 패턴
+
+**도구만 매칭**: `Read`, `Write`, `Bash`
+
+**내용 glob이 포함된 도구**: `Bash(git *)`, `Write(src/**)`
+
+**MCP 서버**: `mcp__servername` 또는 `mcp__servername__toolname`
+
+**에이전트 유형**: `Agent(Explore)`, `Agent(CodeReviewer)`
+
+### Bash 패턴 예시
+
+- 허용: `Bash(git status)`, `Bash(npm run test*)`
+- 거부: `Bash(rm *)`, `Bash(sudo *)`, `Bash(* | bash)`
+
+### 파일 경로 패턴
+
+- 허용: `Write(src/**)`, `Edit(*.md)`, `Read`
+- 거부: `Write(/etc/**)`, `Edit(.env*)`
+
+<Note>
+거부 규칙은 항상 허용 규칙보다 우선합니다.
+</Note>
+
+## 권한 규칙 소스 (우선순위 순)
+
+1. `policySettings` (관리 정책, 편집 불가)
+2. `flagSettings` (CLI/SDK, 세션별)
+3. `userSettings` (~/.claude/settings.json)
+4. `projectSettings` (.claude/settings.json)
+5. `localSettings` (.claude/settings.local.json)
+6. `cliArg` (--allowedTools/--disallowedTools 플래그)
+7. `session` (/permissions 명령어)
+
+## 권한 결정 파이프라인
+
+Claude Code는 일곱 단계의 순차적 과정을 통해 도구 호출을 평가합니다:
+
+1. **거부 규칙**이 매칭되는 호출을 즉시 차단합니다
+2. **확인 규칙**이 확인 대화 상자를 트리거합니다
+3. **도구별 권한 검사**가 실행됩니다
+4. **안전 검사**가 `.git/`, `.claude/`, `.vscode/`, 셸 설정 파일에 대해 프롬프트를 강제합니다
+5. **권한 모드 검사**가 적용됩니다 (bypassPermissions가 대부분의 검사를 재정의)
+6. **허용 규칙**이 매칭되는 호출을 자동 승인합니다
+7. **기본 동작**이 규칙이 매칭되지 않으면 사용자에게 프롬프트합니다
+
+<Warning>
+안전 검사(4단계)는 우회가 불가능합니다. `bypassPermissions` 모드에서도 Claude Code는 `.git/`이나 셸 설정 파일을 수정하기 전에 프롬프트를 표시합니다.
+</Warning>
+
+## 결정과 결과
+
+세 가지 가능한 결과:
+
+| 결과 | 설명 |
+|------|------|
+| `allow` | 도구가 즉시 실행됩니다 |
+| `ask` | 사용자 확인이 필요합니다 |
+| `deny` | 호출이 차단됩니다; Claude가 오류를 받습니다 |
+
+## 작업 디렉토리
+
+기본적으로 파일 접근을 현재 디렉토리로 제한합니다. 추가 접근을 허용하려면:
+
+### CLI
+
+```bash
+claude --add-dir /path/to/extra/dir
+```
+
+### 설정
+
+```json
+{
+  "permissions": {
+    "additionalDirectories": ["/shared/data"]
+  }
+}
+```
+
+## SDK 권한 업데이트
+
+SDK 호스트는 `can_use_tool` 요청에 `PermissionUpdate` 객체로 응답합니다:
+
+```json
+{
+  "type": "addRules",
+  "rules": [{"toolName": "Bash", "ruleContent": "git *"}],
+  "behavior": "allow",
+  "destination": "userSettings"
+}
+```
+
+### 사용 가능한 작업
+
+| 작업 | 설명 |
+|------|------|
+| `addRules` | 규칙 추가 |
+| `replaceRules` | 규칙 대체 |
+| `removeRules` | 규칙 제거 |
+| `setMode` | 모드 설정 |
+| `addDirectories` | 디렉토리 추가 |
+| `removeDirectories` | 디렉토리 제거 |
+
+### 대상
+
+`userSettings`, `projectSettings`, `localSettings`, `session`, `cliArg`
+
+## CLI 플래그
+
+```bash
+claude --allowedTools "Bash(git *),Read,Write" --print "message"
+claude --disallowedTools "Bash,Write" --print "message"
+```
+
+## 실용적인 설정 예시
+
+### CI/CD 파이프라인
+
+```json
+{
+  "defaultPermissionMode": "bypassPermissions",
+  "allowDangerouslySkipPermissions": true,
+  "permissions": {
+    "deny": ["Bash(rm -rf *)", "Bash(sudo *)"]
+  }
+}
+```
+
+### 대화형 개발
+
+```json
+{
+  "defaultPermissionMode": "default",
+  "permissions": {
+    "allow": [
+      "Read", "Glob", "Bash(git status)",
+      "Bash(npm run *)", "Bash(make *)"
+    ]
+  }
+}
+```
+
+### 읽기 전용 분석
+
+```bash
+claude --permission-mode plan "Analyze architecture"
+```
+
+### 자동화된 에이전트
+
+사용자 정의 승인 워크플로우를 위해 `PermissionRequest` 훅과 함께 `dontAsk` 모드를 사용합니다.

@@ -1,0 +1,130 @@
+---
+title: "에이전트 및 작업 도구"
+description: "복잡한 다단계 작업을 관리하기 위한 Task 도구와 TodoWrite 도구"
+---
+
+## 개요
+
+Claude Code는 복잡한 다단계 작업을 관리하기 위해 두 가지 메타 도구를 제공합니다: 자율적인 서브 에이전트를 실행하는 **Task 도구**(Agent 도구라고도 함)와, 구조화된 작업 목록을 관리하는 **TodoWrite**입니다.
+
+## Task (에이전트 도구)
+
+### 목적
+전문화된 서브 에이전트를 실행하여 복잡한 작업을 자율적으로 처리합니다. 서브 에이전트는 자체 도구 세트를 가지고 독립적으로 작동하며, 완료 시 단일 결과 메시지를 반환합니다.
+
+### 주요 파라미터
+
+| 파라미터 | 타입 | 필수 | 용도 |
+|---------|------|------|------|
+| `prompt` | string | 예 | 전체 작업 설명. 파일 경로, 줄 번호, 컨텍스트를 포함하여 자체 완결적이어야 합니다 |
+| `description` | string | 예 | 에이전트 작업을 설명하는 3~5단어의 짧은 레이블 |
+| `subagent_type` | string | 아니오 | 전문화된 에이전트 유형 (예: "code-reviewer", "test-runner") |
+| `model` | string | 아니오 | 선택적 모델 오버라이드: "sonnet", "opus", 또는 "haiku" |
+| `run_in_background` | boolean | 아니오 | true로 설정하면 에이전트가 백그라운드에서 차단 없이 실행됩니다 |
+| `isolation` | string | 아니오 | "worktree"로 설정하면 에이전트가 임시 git worktree에서 실행됩니다 |
+| `cwd` | string | 아니오 | 작업 디렉토리의 절대 경로 |
+| `name` | string | 아니오 | SendMessage를 통해 에이전트에 접근할 수 있는 이름 부여 |
+
+### 서브 에이전트 작동 방식
+
+1. 에이전트가 시스템 프롬프트와 `prompt` 파라미터를 수신합니다
+2. 에이전트가 `subagent_type`에 정의된 도구에 접근합니다 (범용 에이전트의 경우 모든 도구 사용)
+3. 에이전트가 작업 완료까지 자율적으로 실행됩니다
+4. 단일 결과 메시지가 부모에게 반환됩니다 (사용자에게 직접 표시되지 않음)
+
+### Task 도구 사용 시점
+
+**적합한 사용 사례:**
+- 여러 번의 검색/읽기가 필요한 개방형 조사
+- 테스트 스위트 실행 및 실패 분석
+- 새로운 관점에서의 독립적인 코드 리뷰
+- 부모 작업과 동시에 진행할 수 있는 장시간 작업
+- 중간 출력이 많이 생성되는 작업
+
+**사용하지 않아야 할 경우:**
+- 특정 파일 읽기 (`Read`를 직접 사용)
+- 클래스 정의 검색 (`Grep`을 직접 사용)
+- 2~3개의 알려진 파일 내 검색 (`Read`를 직접 사용)
+- 단순한 비관련 작업
+
+### 병렬 에이전트
+
+여러 독립적인 작업을 동시에 실행할 수 있습니다:
+
+```
+Task({ description: "Run tests", prompt: "Run the full test suite..." })
+Task({ description: "Check types", prompt: "Run tsc --noEmit..." })
+```
+
+### 에이전트 재개
+
+`SendMessage`에 에이전트 `name`을 지정하여 후속 메시지를 보낼 수 있으며, 에이전트는 전체 컨텍스트가 보존된 상태로 재개됩니다.
+
+### 효과적인 프롬프트 작성법
+
+- 프롬프트를 작업 중간에 합류하는 동료에게 브리핑하는 것처럼 작성하세요
+- 달성하려는 목표, 시도한 내용, 관련된 특정 파일/함수를 포함하세요
+- 단순 조회(정확한 명령어 전달)와 조사(질문 제공, 단계 지정 대신)를 구분하세요
+
+---
+
+## TodoWrite
+
+### 목적
+현재 세션의 구조화된 작업 목록을 관리합니다. Claude는 진행 상황을 능동적으로 추적하고, 다단계 작업을 정리하며, 진행 중인 활동에 대한 가시성을 제공합니다.
+
+### 파라미터
+
+`todos` (필수): 호출할 때마다 전체 목록을 완전히 대체하는 TodoItem 객체 배열입니다.
+
+### TodoItem 스키마
+
+| 필드 | 타입 | 필수 | 설명 |
+|-----|------|------|------|
+| `content` | string | 예 | 명령형으로 작성된 작업 설명 |
+| `activeForm` | string | 예 | 진행 중에 표시되는 현재 진행형 형태 |
+| `status` | string | 예 | "pending", "in_progress", "completed" 중 하나 |
+
+### Claude가 TodoWrite를 사용하는 경우
+
+**사용하는 경우:**
+- 작업이 3개 이상의 별도 단계를 필요로 할 때
+- 작업이 복잡하고 구조화된 추적이 도움이 될 때
+- 사용자가 달성할 여러 항목을 제공할 때
+- 구현 중 하위 작업이 발견될 때
+
+**사용하지 않는 경우:**
+- 단일 단계 작업
+- 간단한 작업
+- 순수 정보 제공 응답
+
+### 작업 생명주기
+
+**시작:** 작업을 시작하기 전에 `in_progress`로 표시합니다
+**완료:** 구현이 끝나고, 테스트를 통과하고, 오류가 해결되면 `completed`로 표시합니다
+**차단:** 차단된 작업은 `in_progress` 상태를 유지하고, 차단 원인에 대한 새 `pending` 작업을 생성합니다
+**정리:** 모든 작업이 `completed`되면 자동으로 목록을 비웁니다
+
+### 작업 목록 예시
+
+```json
+{
+  "todos": [
+    {
+      "content": "Add dark mode CSS variables",
+      "activeForm": "Adding dark mode CSS variables",
+      "status": "completed"
+    },
+    {
+      "content": "Implement theme context provider",
+      "activeForm": "Implementing theme context provider",
+      "status": "in_progress"
+    },
+    {
+      "content": "Update existing components to use theme",
+      "activeForm": "Updating existing components to use theme",
+      "status": "pending"
+    }
+  ]
+}
+```

@@ -1,0 +1,430 @@
+---
+title: "Hooks"
+description: "Claude가 도구를 사용하거나 세션 마일스톤에 도달할 때 셸 명령, HTTP 요청 또는 프롬프트를 자동으로 실행합니다."
+---
+
+Hooks를 사용하면 Claude Code의 도구 라이프사이클에 자동화를 연결할 수 있습니다. Claude가 파일을 읽거나, bash 명령을 실행하거나, 응답을 완료할 때 설정된 hooks가 자동으로 실행됩니다. Hooks를 사용하여 코드 스타일을 강제하거나, 테스트를 실행하거나, 도구 사용을 로깅하거나, Claude가 수행할 수 있는 작업을 제어할 수 있습니다.
+
+## Hooks의 작동 방식
+
+Hook은 특정 **이벤트**에 바인딩된 명령(셸 스크립트, HTTP 엔드포인트 또는 LLM 프롬프트)입니다. 해당 이벤트가 발생하면 Claude Code가 일치하는 모든 hook을 실행하고, 종료 코드와 출력을 사용하여 다음 동작을 결정합니다.
+
+각 hook의 입력은 발생한 내용을 설명하는 JSON 객체로 stdin을 통해 전달됩니다. 예를 들어 `PreToolUse`의 경우 도구 이름과 인수, `PostToolUse`의 경우 도구 이름과 응답이 포함됩니다.
+
+### 종료 코드 의미
+
+종료 코드의 동작은 이벤트에 따라 다릅니다. 전체 표는 각 이벤트 설명에 문서화되어 있지만, 일반적인 패턴은 다음과 같습니다:
+
+| 종료 코드 | 의미                                                                              |
+| --------- | --------------------------------------------------------------------------------- |
+| `0`       | 성공. stdout이 Claude에게 표시될 수 있습니다 (이벤트별로 다름).                        |
+| `2`       | 차단 또는 주입. stderr를 Claude에게 표시하고 (`PreToolUse`의 경우) 도구 호출을 방지합니다. |
+| 기타      | stderr를 사용자에게만 표시합니다. 실행은 계속됩니다.                                    |
+
+## Hook 이벤트
+
+<AccordionGroup>
+  <Accordion title="PreToolUse — 도구 실행 전">
+    모든 도구 호출 전에 실행됩니다. Hook 입력에는 도구 이름과 인수가 JSON으로 포함됩니다.
+
+    * 종료 `0`: 도구가 정상적으로 진행됩니다 (stdout은 표시되지 않음)
+    * 종료 `2`: 도구 호출을 차단하고 stderr를 Claude에게 표시하여 응답할 수 있게 합니다
+    * 기타: stderr를 사용자에게 표시하지만 도구 호출은 계속 허용합니다
+
+    matcher를 사용하여 이 hook을 특정 도구로 제한할 수 있습니다 (예: `Bash`, `Write`).
+  </Accordion>
+
+  <Accordion title="PostToolUse — 도구 실행 후">
+    성공적인 도구 호출 후에 실행됩니다. Hook 입력에는 `inputs` (도구 인수)와 `response` (도구 결과)가 포함됩니다.
+
+    * 종료 `0`: stdout이 트랜스크립트 모드(Ctrl+O)에서 표시됩니다
+    * 종료 `2`: stderr를 Claude에게 즉시 표시합니다 (Claude가 응답할 수 있음)
+    * 기타: stderr를 사용자에게만 표시합니다
+
+    파일 편집 후 포매터, 린터 또는 테스트 러너를 실행하는 데 사용합니다.
+  </Accordion>
+
+  <Accordion title="PostToolUseFailure — 도구 오류 발생 후">
+    도구 호출이 오류를 발생시킬 때 실행됩니다. 입력에는 `tool_name`, `tool_input`, `error`, `error_type`, `is_interrupt`, `is_timeout`이 포함됩니다.
+
+    `PostToolUse`와 동일한 종료 코드 의미를 따릅니다.
+  </Accordion>
+
+  <Accordion title="Stop — Claude가 응답을 마무리하기 전">
+    Claude의 턴이 끝나기 직전에 실행됩니다. matcher를 지원하지 않습니다.
+
+    * 종료 `0`: 출력이 표시되지 않음
+    * 종료 `2`: stderr를 Claude에게 표시하고 대화를 계속합니다 (Claude가 추가 턴을 받음)
+    * 기타: stderr를 사용자에게만 표시합니다
+
+    Claude가 완료하기 전에 모든 필수 작업이 완료되었는지 확인하는 데 사용합니다.
+  </Accordion>
+
+  <Accordion title="SubagentStop — 서브에이전트가 마무리하기 전">
+    `Stop`과 유사하지만, Agent 도구를 통해 실행된 서브에이전트가 완료될 때 실행됩니다. 입력에는 `agent_id`, `agent_type`, `agent_transcript_path`가 포함됩니다. `Stop`과 동일한 종료 코드 의미를 따릅니다.
+  </Accordion>
+
+  <Accordion title="SubagentStart — 서브에이전트 시작 시">
+    새로운 서브에이전트가 실행될 때 발생합니다. 입력에는 `agent_id`와 `agent_type`이 포함됩니다.
+
+    * 종료 `0`: stdout이 서브에이전트의 초기 프롬프트에 표시됩니다
+    * 기타: stderr를 사용자에게만 표시합니다
+  </Accordion>
+
+  <Accordion title="SessionStart — 세션 시작 시">
+    모든 세션의 시작 시 실행됩니다 (시작, 재개, `/clear` 또는 `/compact`). 입력에는 시작 `source`가 포함됩니다.
+
+    * 종료 `0`: stdout이 Claude에게 표시됩니다
+    * 기타: stderr를 사용자에게만 표시합니다 (차단 오류는 무시됨)
+
+    `source` 값으로 매칭: `startup`, `resume`, `clear`, `compact`.
+  </Accordion>
+
+  <Accordion title="UserPromptSubmit — 프롬프트 제출 시">
+    프롬프트를 제출하기 위해 Enter를 누를 때 실행됩니다. 입력에는 원본 프롬프트 텍스트가 포함됩니다.
+
+    * 종료 `0`: stdout이 Claude에게 표시됩니다 (컨텍스트를 앞에 추가할 수 있음)
+    * 종료 `2`: 프롬프트를 차단하고 stderr를 사용자에게만 표시합니다
+    * 기타: stderr를 사용자에게만 표시합니다
+  </Accordion>
+
+  <Accordion title="PreCompact — 대화 압축 전">
+    Claude Code가 대화를 압축하기 전에 실행됩니다 (자동 또는 수동). 입력에는 압축 세부 정보가 포함됩니다.
+
+    * 종료 `0`: stdout이 사용자 정의 압축 지침으로 추가됩니다
+    * 종료 `2`: 압축을 차단합니다
+    * 기타: stderr를 사용자에게 표시하지만 계속 진행합니다
+
+    `trigger`로 매칭: `manual` 또는 `auto`.
+  </Accordion>
+
+  <Accordion title="PostCompact — 대화 압축 후">
+    압축이 완료된 후 실행됩니다. 입력에는 압축 세부 정보와 요약이 포함됩니다.
+
+    * 종료 `0`: stdout이 사용자에게 표시됩니다
+    * 기타: stderr를 사용자에게만 표시합니다
+  </Accordion>
+
+  <Accordion title="Setup — 저장소 설정 및 유지보수">
+    `trigger: init` (프로젝트 온보딩) 또는 `trigger: maintenance` (주기적)로 실행됩니다. 일회성 설정 스크립트나 주기적 유지보수 작업에 사용합니다.
+
+    * 종료 `0`: stdout이 Claude에게 표시됩니다
+    * 기타: stderr를 사용자에게만 표시합니다
+  </Accordion>
+
+  <Accordion title="PermissionRequest — 권한 대화상자 표시 시">
+    Claude Code가 권한 프롬프트를 표시할 때 실행됩니다. `hookSpecificOutput.decision`이 포함된 JSON을 출력하여 프로그래밍 방식으로 승인 또는 거부할 수 있습니다.
+
+    * 종료 `0`: 제공된 경우 hook의 결정을 사용합니다
+    * 기타: stderr를 사용자에게만 표시합니다
+  </Accordion>
+
+  <Accordion title="PermissionDenied — 자동 모드에서 도구 호출 거부 후">
+    자동 모드 분류기가 도구 호출을 거부할 때 실행됩니다. `{"hookSpecificOutput":{"hookEventName":"PermissionDenied","retry":true}}`를 반환하여 Claude가 재시도할 수 있도록 합니다.
+  </Accordion>
+
+  <Accordion title="Notification — 알림 전송 시">
+    권한 프롬프트, 유휴 프롬프트, 인증 성공, 유도 이벤트에 대해 실행됩니다. `notification_type`으로 매칭합니다.
+
+    * 종료 `0`: 출력이 표시되지 않음
+    * 기타: stderr를 사용자에게만 표시합니다
+  </Accordion>
+
+  <Accordion title="CwdChanged — 작업 디렉토리 변경 후">
+    작업 디렉토리가 변경된 후 실행됩니다. 입력에는 `old_cwd`와 `new_cwd`가 포함됩니다. `CLAUDE_ENV_FILE` 환경 변수가 설정됩니다. 해당 파일에 bash export 라인을 작성하면 이후 Bash 도구 호출에 새 환경 변수가 적용됩니다.
+  </Accordion>
+
+  <Accordion title="FileChanged — 감시 중인 파일 변경 시">
+    hook의 `matcher` 패턴과 일치하는 파일이 디스크에서 변경될 때 실행됩니다. matcher는 감시할 파일명 패턴을 지정합니다 (예: `.envrc|.env`). `CwdChanged`와 마찬가지로 환경 주입을 위한 `CLAUDE_ENV_FILE`을 지원합니다.
+  </Accordion>
+
+  <Accordion title="SessionEnd — 세션 종료 시">
+    세션이 종료될 때 실행됩니다 (clear, logout 또는 exit). `reason`으로 매칭: `clear`, `logout`, `prompt_input_exit` 또는 `other`.
+  </Accordion>
+
+  <Accordion title="ConfigChange — 설정 파일 변경 시">
+    세션 중 설정 파일이 변경될 때 실행됩니다. `source`로 매칭: `user_settings`, `project_settings`, `local_settings`, `policy_settings` 또는 `skills`.
+
+    * 종료 `0`: 변경을 허용합니다
+    * 종료 `2`: 변경이 적용되는 것을 차단합니다
+  </Accordion>
+
+  <Accordion title="InstructionsLoaded — CLAUDE.md 파일 로드 시">
+    지침 파일(CLAUDE.md 또는 규칙)이 로드될 때 실행됩니다. 관찰 전용으로, 차단을 지원하지 않습니다.
+  </Accordion>
+
+  <Accordion title="WorktreeCreate / WorktreeRemove — 워크트리 라이프사이클">
+    `WorktreeCreate`는 격리된 워크트리를 생성해야 할 때 실행됩니다. stdout에는 생성된 워크트리의 절대 경로가 포함되어야 합니다. `WorktreeRemove`는 워크트리를 정리해야 할 때 실행됩니다.
+  </Accordion>
+
+  <Accordion title="Task 이벤트 — 작업 라이프사이클">
+    `TaskCreated`와 `TaskCompleted`는 작업이 생성되거나 완료로 표시될 때 실행됩니다. 입력에는 `task_id`, `task_subject`, `task_description`, `teammate_name`, `team_name`이 포함됩니다. 종료 `2`는 상태 변경을 방지합니다.
+  </Accordion>
+
+  <Accordion title="TeammateIdle — 팀원이 유휴 상태로 전환되기 전">
+    팀원이 유휴 상태로 전환되기 전에 실행됩니다. 종료 `2`로 stderr를 팀원에게 전송하고 유휴 상태 전환을 방지합니다.
+  </Accordion>
+
+  <Accordion title="Elicitation / ElicitationResult — MCP 유도">
+    `Elicitation`은 MCP 서버가 사용자 입력을 요청할 때 실행됩니다. `hookSpecificOutput`에 JSON을 반환하여 프로그래밍 방식으로 응답을 제공할 수 있습니다. `ElicitationResult`는 사용자가 응답한 후 실행되어 응답을 수정하거나 차단할 수 있습니다.
+  </Accordion>
+</AccordionGroup>
+
+## Hooks 설정하기
+
+Claude Code 내에서 `/hooks`를 실행하여 hooks 설정 메뉴를 엽니다. 메뉴에는 이벤트별로 그룹화된 모든 설정된 hooks가 표시되며, 대화형으로 추가, 편집 또는 제거할 수 있습니다.
+
+Hooks는 설정 파일의 `hooks` 필드에 저장됩니다:
+
+* `~/.claude/settings.json` — 사용자 수준 hooks (모든 곳에 적용)
+* `.claude/settings.json` — 프로젝트 수준 hooks (이 프로젝트에 적용)
+* `.claude/settings.local.json` — 로컬 hooks (VCS에 체크인되지 않음)
+
+### 설정 형식
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "prettier --write $CLAUDE_FILE_PATH"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'Session complete' >> ~/.claude-log.txt"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+각 이벤트는 **matcher 객체** 배열에 매핑됩니다. 각 matcher 객체는 다음을 포함합니다:
+
+* `matcher` (선택 사항) — 이벤트의 매칭 가능한 필드와 매칭할 문자열 패턴 (예: `PreToolUse`/`PostToolUse`의 경우 `tool_name`, `Setup`의 경우 `trigger`, `SessionStart`의 경우 `source`)
+* `hooks` — matcher가 일치할 때 실행할 hook 명령 배열
+
+### Hook 명령 유형
+
+<Tabs>
+  <Tab title="셸 명령">
+    ```json
+    {
+      "type": "command",
+      "command": "npm test",
+      "timeout": 60,
+      "shell": "bash"
+    }
+    ```
+
+    필드:
+
+    * `command` — 실행할 셸 명령 (필수)
+    * `timeout` — 타임아웃 초 단위 (기본값: 제한 없음)
+    * `shell` — `"bash"` (기본값) 또는 `"powershell"`
+    * `statusMessage` — hook 실행 중 표시되는 사용자 정의 스피너 텍스트
+    * `async` — 차단하지 않고 백그라운드에서 실행 (`true`/`false`)
+    * `once` — 한 번 실행 후 hook을 자동으로 제거
+    * `if` — 조건부로 hook을 건너뛰는 권한 규칙 구문 (예: `"Bash(git *)"`)
+  </Tab>
+
+  <Tab title="HTTP 요청">
+    ```json
+    {
+      "type": "http",
+      "url": "https://hooks.example.com/claude-event",
+      "headers": {
+        "Authorization": "Bearer $MY_TOKEN"
+      },
+      "allowedEnvVars": ["MY_TOKEN"],
+      "timeout": 10
+    }
+    ```
+
+    Claude Code가 hook 입력 JSON을 URL로 POST합니다. 헤더는 `allowedEnvVars`에 나열된 변수에 대해 `$VAR` 확장을 지원합니다.
+  </Tab>
+
+  <Tab title="LLM 프롬프트">
+    ```json
+    {
+      "type": "prompt",
+      "prompt": "Review this tool call for security issues: $ARGUMENTS. If you find a problem, output an explanation and exit with code 2.",
+      "model": "claude-haiku-4-5",
+      "timeout": 30
+    }
+    ```
+
+    Hook 프롬프트가 LLM에 의해 평가됩니다. `$ARGUMENTS`는 hook 입력 JSON으로 대체됩니다. LLM의 응답이 hook 출력이 됩니다.
+  </Tab>
+
+  <Tab title="에이전트 Hook">
+    ```json
+    {
+      "type": "agent",
+      "prompt": "Verify that the unit tests in $ARGUMENTS passed and all assertions are meaningful.",
+      "timeout": 60
+    }
+    ```
+
+    프롬프트 hook과 유사하지만, 도구 접근이 가능한 전체 에이전트로 실행됩니다. 파일 읽기나 명령 실행이 필요한 검증 작업에 유용합니다.
+  </Tab>
+</Tabs>
+
+## Matcher 패턴
+
+매칭을 지원하는 이벤트(`PreToolUse`, `PostToolUse`, `SessionStart` 등)의 경우, `matcher` 필드가 어떤 입력이 hook을 트리거하는지 필터링합니다.
+
+* 비어 있거나 없는 `matcher`는 해당 이벤트의 모든 입력과 일치합니다.
+* 도구 이벤트의 경우, `matcher`는 `tool_name`과 매칭됩니다 (예: `"Bash"`, `"Write"`, `"Read"`).
+* `SessionStart`의 경우, `source`와 매칭됩니다 (예: `"startup"`, `"compact"`).
+* `Setup`의 경우, `trigger`와 매칭됩니다 (예: `"init"`, `"maintenance"`).
+* `FileChanged`의 경우, `matcher`가 감시할 파일명 패턴을 지정합니다 (예: `".envrc|.env"`).
+
+## Hook 예제
+
+### 편집 후 파일 자동 포맷
+
+모든 파일 쓰기 후 Prettier 실행:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "prettier --write \"$CLAUDE_FILE_PATH\" 2>/dev/null || true"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### bash 명령 후 테스트 실행
+
+소스 파일을 수정하는 bash 명령 후 테스트 스위트 실행:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if git diff --name-only HEAD | grep -q '\\.ts$'; then npm test; fi",
+            "timeout": 120,
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 모든 도구 사용 로깅
+
+모든 도구 호출을 로그 파일에 기록:
+
+```json
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo \"$(date -u +%Y-%m-%dT%H:%M:%SZ) $CLAUDE_TOOL_NAME\" >> ~/.claude-tool-log.txt",
+            "async": true
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 위험한 명령 차단
+
+`PreToolUse`를 사용하여 `rm -rf` 호출 방지:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_TOOL_INPUT\" | grep -q 'rm -rf'; then echo 'Blocked: rm -rf is not allowed' >&2; exit 2; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### 디렉토리 변경 시 환경 주입
+
+`CwdChanged`와 `CLAUDE_ENV_FILE`을 사용하여 디렉토리 변경 시 `.envrc` 로드:
+
+```json
+{
+  "hooks": {
+    "CwdChanged": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if [ -f .envrc ]; then grep '^export ' .envrc >> \"$CLAUDE_ENV_FILE\"; fi"
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+## Hook 타임아웃 설정
+
+`timeout` 필드를 사용하여 hook별 타임아웃을 초 단위로 설정합니다:
+
+```json
+{
+  "type": "command",
+  "command": "npm run integration-tests",
+  "timeout": 300
+}
+```
+
+`timeout`이 없는 hooks는 자연스럽게 종료될 때까지 실행됩니다. Claude를 차단하지 않아야 하는 장시간 실행 hooks에는 `"async": true`를 사용하세요.
+
+## Hooks vs. Skills
+
+| 기능        | Hooks                                | Skills                                               |
+| ----------- | ------------------------------------ | ---------------------------------------------------- |
+| 실행 시점   | 도구 이벤트 시 자동으로              | Claude 또는 사용자가 명시적으로 `/skill-name` 호출 시 |
+| 목적        | 부수 효과, 게이팅, 관찰 가능성       | 주문형 워크플로우 및 기능                              |
+| 설정 방식   | 설정 JSON                           | `.claude/skills/`의 마크다운 파일                     |
+| 입력        | 도구 이벤트의 JSON                   | skill에 전달하는 인수                                 |
+
+매번 자동으로 실행되어야 하는 작업(포매팅, 로깅, 규칙 적용)에는 hooks를 사용하세요. 필요할 때 트리거하는 반복 가능한 워크플로우에는 skills를 사용하세요.
