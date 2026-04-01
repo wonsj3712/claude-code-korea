@@ -21,17 +21,12 @@
       "url": "https://www.mintlify.com/VineeTagarwaL-code/claude-code"
     }
   ],
-  "tabs": [
-    {
-      "name": "API 레퍼런스",
-      "url": "api-reference"
-    }
-  ],
+  "tabs": [],
   "anchors": [
     {
       "name": "GitHub",
       "icon": "github",
-      "url": "https://github.com/VineeTagarwaL-code/claude-code"
+      "url": "https://github.com/wonsj3712/claude-code-korea"
     }
   ],
   "navigation": [
@@ -98,6 +93,6 @@
     }
   ],
   "footerSocials": {
-    "github": "https://github.com/VineeTagarwaL-code/claude-code"
+    "github": "https://github.com/wonsj3712/claude-code-korea"
   }
 }
